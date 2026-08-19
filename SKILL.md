@@ -56,13 +56,36 @@ The recovery automation is recovery-only:
 2. Inspect every enabled destination before writing. Compare completion markers, daily indexes, expected relative paths, and file presence; a date folder alone is not proof of success.
 3. For each enabled source, collect only the configured categories:
    - `documents`: document-like artifacts, preserving source-relative directories.
-   - `code`: repository-and-date UTF-8 patches and Markdown summaries, including committed, staged, unstaged, and untracked text changes. Do not upload complete tracked source trees.
+   - `code`: repository-and-date UTF-8 patches and Markdown summaries, including committed, staged, unstaged, and untracked text changes. Do not upload complete tracked source trees. Generate committed history with `scripts/collect_git_history.py`; do not hand-roll Git loops.
    - `prompts`: human-entered prompts from demonstrably related Codex, Claude, or Antigravity sessions.
    - `other`: eligible non-document, non-code outputs while excluding caches and build intermediates.
 4. Before uploading prompt exports, irreversibly mask personal data, home-directory usernames, credentials, tokens, cookies, keys, and connection strings. Run a second inspection; withhold uncertain exports and report only counts.
 5. Build the configured date/category hierarchy. Upload missing items to each destination independently and avoid duplicates by relative path, name, and content.
 6. Continue safe work after an isolated destination failure and retry transient failures. Do not write a completion marker while any required item is missing.
 7. Never modify, move, or delete local source files or original session logs. Never upload raw session logs, assistant output, system/developer text, tool output, or internal reasoning.
+
+### Mandatory committed-code reconciliation
+
+Run the deterministic collector for the exact report range before any code upload:
+
+```bash
+python3 scripts/collect_git_history.py \
+  --config ~/.config/developer-work-report/config.json \
+  --output /path/to/staging \
+  --from YYYY-MM-DD \
+  --until YYYY-MM-DD
+```
+
+The generated `git-collection-manifest.json` is authoritative. The collector:
+
+- discovers nested repositories in every enabled `code` source;
+- reads every reachable branch and tag with `git log --all` and de-duplicates commit hashes;
+- groups by committer date in the configured timezone;
+- accumulates the full repository/date group before writing, so a later commit cannot overwrite an earlier one;
+- verifies that every selected hash occurs exactly once in both patch and summary;
+- records commit counts, hash lists, and SHA-256 values for upload reconciliation.
+
+Abort the upload if the manifest count differs from the daily index, a listed hash is absent, or an output digest changes before upload. Current staged, unstaged, and untracked snapshots are separate run-time artifacts: never present them as reconstructable historical state.
 
 ## Regular and recovery behavior
 
@@ -72,6 +95,6 @@ When a source has `until`, do not scan it after that boundary during regular run
 
 ## Verify and report
 
-After schedule changes, verify that both configured automations are active, their rendered schedules match the config, and every enabled destination appears in both prompts. After uploads, read back the destination roots, earliest and latest affected dates, at least one mixed-content sample date, and any completion marker.
+After schedule changes, verify that both configured automations are active, their rendered schedules match the config, and every enabled destination appears in both prompts. After uploads, read back the destination roots, earliest and latest affected dates, at least one mixed-content sample date, and any completion marker. For code, also sample a multi-commit date and compare its Drive patch and summary against the manifest hash list and commit count.
 
 Report in the user's language. Give per-destination links and counts for uploads, duplicates, masking/withholding, and failures. State the exact remaining blocker when synchronization is incomplete.

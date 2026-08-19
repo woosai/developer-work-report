@@ -7,6 +7,7 @@ The default configuration lives outside the installed skill at `~/.config/develo
 - `version`: Must be `1`.
 - `timezone`: IANA timezone used for schedules and date grouping.
 - `execution`: Local scheduled-task project information.
+- `git`: Git author identities included in this personal work report.
 - `automations`: Normal collection and failure-recovery schedule definitions.
 - `sources`: One or more local business folders. Multiple entries are supported.
 - `session_sources`: Optional AI session-log locations used only to extract human prompts.
@@ -29,6 +30,10 @@ Both `collection` and `recovery` accept:
 - `skip_public_holidays`: Whether the prompt should check holidays before writing.
 
 The recovery task always limits collection to the end of the previous local day. Its schedule is independent of the normal collection time.
+
+## Git
+
+`git.author_emails` is a required non-empty array. Only commits whose author email matches an entry (case-insensitively) are collected. This prevents teammates' commits from entering a personal report while allowing multiple identities for the same developer. Email addresses are configuration-only and remain masked in exported patches and summaries.
 
 ## Sources
 

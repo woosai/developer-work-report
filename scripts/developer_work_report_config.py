@@ -164,6 +164,20 @@ def validate_config(data: dict, check_paths: bool) -> tuple[list[str], list[str]
     if enabled_sources == 0:
         errors.append("at least one source must be enabled")
 
+    git_options = require_object(data.get("git"), "git", errors)
+    author_emails = git_options.get("author_emails")
+    if not isinstance(author_emails, list) or not author_emails:
+        errors.append("git.author_emails must be a non-empty array")
+    else:
+        normalized_emails: set[str] = set()
+        for index, email in enumerate(author_emails):
+            value = require_nonempty_string(email, f"git.author_emails[{index}]", errors).lower()
+            if value and "@" not in value:
+                errors.append(f"git.author_emails[{index}] must be an email address")
+            if value in normalized_emails:
+                errors.append("git.author_emails must not contain duplicates")
+            normalized_emails.add(value)
+
     session_sources = data.get("session_sources", [])
     if not isinstance(session_sources, list):
         errors.append("session_sources must be an array")
@@ -247,6 +261,7 @@ def render(data: dict, config_path: Path) -> dict:
         f"- {item['agent']}: {item['path']} | format={item['format']}" for item in sessions
     ) or "- none"
 
+    collector_script = SKILL_ROOT / "scripts" / "collect_git_history.py"
     shared_rules = f"""Configuration: {config_path}
 Timezone: {timezone}
 
@@ -259,7 +274,9 @@ Enabled session sources (read-only; never upload raw logs):
 Enabled destinations:
 {destination_lines}
 
-Collect only each source's configured categories. Organize artifacts by their actual work date under YYYY-MM-DD with a daily index, 프롬프트/<agent>, 문서/<source-relative path>, 코드/<repository>, and 기타 as applicable. Do not create empty category folders. Store code as date/repository patches and summaries rather than complete tracked source trees. Extract only human prompts demonstrably associated with an enabled business source. Never upload raw session logs, assistant/system/developer/tool content, internal reasoning, caches, build intermediates, environment files, certificates, keys, or credentials. Irreversibly mask personal data, home-directory usernames, and secrets, then perform a second privacy inspection and withhold uncertain exports. Never modify local source files or original session logs.
+Git author filter: {', '.join(data['git']['author_emails'])}
+
+Collect only each source's configured categories. Organize artifacts by their actual work date under YYYY-MM-DD with a daily index, 프롬프트/<agent>, 문서/<source-relative path>, 코드/<repository>, and 기타 as applicable. Do not create empty category folders. Store code as date/repository patches and summaries rather than complete tracked source trees. For committed code, MUST run `{collector_script}` for the exact range and use its manifest as the source of truth. It scans `git log --all`, aggregates every unique commit before writing one repository/date patch and summary, and rejects count mismatches. Never replace this with a current-branch-only log or a per-commit overwrite loop. Reconcile manifest commit hashes and counts with every daily index before upload. Extract only human prompts demonstrably associated with an enabled business source. Never upload raw session logs, assistant/system/developer/tool content, internal reasoning, caches, build intermediates, environment files, certificates, keys, or credentials. Irreversibly mask personal data, home-directory usernames, and secrets, then perform a second privacy inspection and withhold uncertain exports. Never modify local source files or original session logs.
 
 Treat destinations independently: inspect before writing, avoid duplicates by relative path/name/content, repair only missing items, continue after an isolated failure, and report overall success only when every enabled destination is synchronized. A normal no-change day still gets a date folder and daily index in every destination."""
 

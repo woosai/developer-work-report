@@ -6,6 +6,9 @@
     "project_path": "/absolute/path/to/project",
     "project_id": ""
   },
+  "git": {
+    "author_emails": ["developer@example.com"]
+  },
   "automations": {
     "collection": {
       "id": "work-report-collection",

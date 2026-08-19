@@ -5,10 +5,13 @@
 ## 주요 기능
 
 - 여러 개의 로컬 업무 폴더 지정
+- 본인 Git 작성자 이메일을 하나 이상 지정해 팀원 커밋 제외
 - 소스 폴더별 수집 종류와 적용 기간 설정
 - 여러 Google Drive 폴더에 동일한 결과물 업로드
 - 정상 수집과 실패 복구의 요일·시간 개별 설정
 - 문서, Git 변경 patch·요약, AI 세션 사용자 프롬프트 수집
+- 모든 브랜치·태그(`git log --all`)를 대상으로 날짜별 전체 커밋 누적
+- 커밋 해시·개수·SHA-256 대조 실패 시 업로드 중단
 - 프롬프트의 개인정보와 자격증명 강제 마스킹
 - 이미 성공한 파일을 중복 업로드하지 않고 전날까지 누락분 복구
 
@@ -46,6 +49,18 @@ python3 ~/.codex/skills/developer-work-report/scripts/developer_work_report_conf
 python3 ~/.codex/skills/developer-work-report/scripts/developer_work_report_config.py render
 ```
 
+전체 Git 이력을 날짜별로 다시 수집하거나 업로드 전 결과를 검증할 때는 다음 명령을 사용합니다.
+
+```bash
+python3 ~/.codex/skills/developer-work-report/scripts/collect_git_history.py \
+  --config ~/.config/developer-work-report/config.json \
+  --output /private/tmp/developer-work-report-output \
+  --from 2025-12-18 \
+  --until 2026-08-18
+```
+
+수집기는 중첩 Git 저장소를 찾고 모든 브랜치와 태그의 고유 커밋을 날짜별로 먼저 누적한 다음 patch와 요약을 각각 한 번만 기록합니다. 생성된 `git-collection-manifest.json`의 커밋 수·해시·파일 해시가 일치하지 않으면 업로드를 진행하면 안 됩니다.
+
 ## 다중 소스 및 업로드 대상 설정
 
 설정 파일의 `sources`와 `destinations`는 배열이므로 필요한 만큼 항목을 추가할 수 있습니다.
@@ -54,6 +69,7 @@ python3 ~/.codex/skills/developer-work-report/scripts/developer_work_report_conf
 - `destinations`: 업로드할 Google Drive 폴더 목록
 - `automations.collection`: 정상 수집 요일과 시간
 - `automations.recovery`: 실패 복구 요일과 시간
+- `git.author_emails`: 보고서에 포함할 본인 Git 작성자 이메일 목록
 
 각 소스에는 다음 항목을 지정할 수 있습니다.
 
