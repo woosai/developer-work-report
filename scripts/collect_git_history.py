@@ -180,7 +180,7 @@ def write_group(output: Path, repo: Repository, work_date: str, commits: list[Co
     target = output / work_date / "코드" / repo.label
     target.mkdir(parents=True, exist_ok=True)
     patch_path = target / f"{repo.label}_{work_date}.patch"
-    summary_path = target / f"{repo.label}_{work_date}_summary.md"
+    summary_path = target / f"{repo.label}_{work_date}_변경요약.md"
 
     patch_parts = [commit_patch(repo, commit.oid) for commit in commits]
     patch_text = mask_text("\n".join(patch_parts))
