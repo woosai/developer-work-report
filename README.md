@@ -65,25 +65,6 @@ python3 ~/.codex/skills/developer-work-report/scripts/developer_work_report_conf
 
 예제 설정에는 자리표시자만 들어 있습니다. 로컬 사용자명, 비공개 경로, 실제 Drive 폴더 ID가 포함된 개인 설정 파일은 Git에 커밋하지 마세요.
 
-## GitHub 저장소에 직접 게시
-
-GitHub에서 `developer-work-report`라는 빈 저장소를 만듭니다. 이 패키지에는 이미 README와 `.gitignore`가 있으므로 GitHub 저장소를 만들 때 README, 라이선스, `.gitignore`를 추가하지 않는 것이 좋습니다.
-
-준비된 로컬 폴더에서 다음 명령을 실행합니다.
-
-```bash
-git remote add origin https://github.com/woosai/developer-work-report.git
-git branch -M main
-git push -u origin main
-```
-
-원격 저장소를 만들면서 GitHub README를 추가해 이력이 충돌한다면, 원격 내용을 확인한 후 다음과 같이 로컬 패키지로 교체할 수 있습니다.
-
-```bash
-git fetch origin main
-git push --force-with-lease -u origin main
-```
-
 ## 사용 방법
 
 Codex에 다음과 같이 요청합니다.
