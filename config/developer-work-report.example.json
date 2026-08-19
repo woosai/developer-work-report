@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "timezone": "Asia/Seoul",
+  "execution": {
+    "environment": "local",
+    "project_path": "/absolute/path/to/project",
+    "project_id": ""
+  },
+  "automations": {
+    "collection": {
+      "id": "work-report-collection",
+      "name": "Daily work-report collection",
+      "enabled": true,
+      "weekdays": ["MO", "TU", "WE", "TH", "FR"],
+      "time": "18:00",
+      "skip_public_holidays": true
+    },
+    "recovery": {
+      "id": "work-report-recovery",
+      "name": "Work-report failure recovery",
+      "enabled": true,
+      "weekdays": ["MO", "TU", "WE", "TH", "FR"],
+      "time": "09:00",
+      "skip_public_holidays": true
+    }
+  },
+  "sources": [
+    {
+      "name": "plans",
+      "path": "/absolute/path/to/plans",
+      "enabled": true,
+      "collect": ["documents", "prompts"],
+      "from": "2025-12-18",
+      "until": null
+    },
+    {
+      "name": "project",
+      "path": "/absolute/path/to/project",
+      "enabled": true,
+      "collect": ["documents", "code", "prompts", "other"],
+      "from": "2025-12-18",
+      "until": null
+    },
+    {
+      "name": "historical-project",
+      "path": "/absolute/path/to/historical-project",
+      "enabled": false,
+      "collect": ["documents", "code", "prompts", "other"],
+      "from": "2025-12-18",
+      "until": "2026-07-02"
+    }
+  ],
+  "session_sources": [
+    {
+      "agent": "Codex",
+      "path": "/Users/USER/.codex/sessions",
+      "format": "jsonl",
+      "enabled": true
+    },
+    {
+      "agent": "Claude",
+      "path": "/Users/USER/.claude/projects",
+      "format": "jsonl",
+      "enabled": true
+    },
+    {
+      "agent": "Antigravity",
+      "path": "/Users/USER/.gemini/antigravity/brain",
+      "format": "transcript-jsonl",
+      "enabled": true
+    }
+  ],
+  "destinations": [
+    {
+      "name": "primary",
+      "provider": "google_drive",
+      "folder_url": "https://drive.google.com/drive/folders/REPLACE_WITH_FOLDER_ID",
+      "enabled": true
+    },
+    {
+      "name": "mirror",
+      "provider": "google_drive",
+      "folder_url": "https://drive.google.com/drive/folders/REPLACE_WITH_SECOND_FOLDER_ID",
+      "enabled": false
+    }
+  ],
+  "privacy": {
+    "mask_prompts": true,
+    "mask_home_user": true,
+    "exclude_secrets": true,
+    "withhold_on_uncertainty": true
+  }
+}
