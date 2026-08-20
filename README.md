@@ -13,6 +13,9 @@
 - 모든 브랜치·태그(`git log --all`)를 대상으로 날짜별 전체 커밋 누적
 - 커밋 해시·개수·SHA-256 대조 실패 시 업로드 중단
 - 프롬프트의 개인정보와 자격증명 강제 마스킹
+- 사람의 요청만 남기고 서브에이전트·도구 출력·환경 정보 등 기계 생성 세션 내용 제거
+- 문서는 발견일이 아니라 실제 파일 수정일 기준으로 날짜 분류
+- Drive 미리보기 대신 원본 바이트와 폴더 부모 관계까지 검증
 - 이미 성공한 파일을 중복 업로드하지 않고 전날까지 누락분 복구
 
 ## GitHub에서 설치
@@ -60,6 +63,17 @@ python3 ~/.codex/skills/developer-work-report/scripts/collect_git_history.py \
 ```
 
 수집기는 중첩 Git 저장소를 찾고 모든 브랜치와 태그의 고유 커밋을 날짜별로 먼저 누적한 다음 patch와 요약을 각각 한 번만 기록합니다. 생성된 `git-collection-manifest.json`의 커밋 수·해시·파일 해시가 일치하지 않으면 업로드를 진행하면 안 됩니다.
+
+프롬프트 내보내기는 업로드 전에 반드시 정제기를 통과시킵니다.
+
+```bash
+python3 ~/.codex/skills/developer-work-report/scripts/sanitize_prompt_exports.py \
+  --root /private/tmp/developer-work-report-output \
+  --from 2025-12-18 \
+  --until 2026-08-18
+```
+
+정제기는 알려진 기계 생성 섹션을 제거하고 개인정보·로그인 정보·자격증명을 마스킹합니다. 잔여 민감정보나 기계 태그를 발견하면 0이 아닌 종료 코드로 업로드를 중단합니다.
 
 ## 다중 소스 및 업로드 대상 설정
 
