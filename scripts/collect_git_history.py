@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import hashlib
+import io
 import json
 import os
 import re
@@ -40,6 +42,7 @@ class Commit:
     oid: str
     committed_at: str
     work_date: str
+    work_time: str
     author: str
     email: str
     subject: str
@@ -52,6 +55,20 @@ class Repository:
     label: str
     source_from: date | None
     source_until: date | None
+
+
+@dataclass(frozen=True)
+class CommitCsvEntry:
+    work_date: str
+    work_time: str
+    repository: str
+    branches: tuple[str, ...]
+    oid: str
+    subject: str
+    file_count: int | None
+    additions: int | None
+    deletions: int | None
+    is_merge: bool
 
 
 def run_git(repo: Path, *args: str) -> str:
@@ -138,8 +155,66 @@ def commits_for_repo(repo: Repository, timezone: ZoneInfo, author_emails: set[st
             continue
         parseable_time = committed_at[:-1] + "+00:00" if committed_at.endswith("Z") else committed_at
         instant = datetime.fromisoformat(parseable_time).astimezone(timezone)
-        commits.append(Commit(oid, committed_at, instant.date().isoformat(), author, email, subject))
+        commits.append(
+            Commit(
+                oid,
+                committed_at,
+                instant.date().isoformat(),
+                instant.strftime("%H:%M"),
+                author,
+                email,
+                subject,
+            )
+        )
     return commits
+
+
+def branch_membership(repo: Repository, commits: list[Commit]) -> dict[str, tuple[str, ...]]:
+    """Return current local/remote branch refs containing each selected commit.
+
+    Git commits do not record the branch on which they were created. These values
+    therefore describe current reachability, not historical authorship.
+    """
+    if not commits:
+        return {}
+    selected = {commit.oid for commit in commits}
+    membership: dict[str, dict[str, tuple[int, bool]]] = {oid: {} for oid in selected}
+    raw_refs = run_git(
+        repo.root,
+        "for-each-ref",
+        "--format=%(refname:short)%00%(refname)",
+        "refs/heads",
+        "refs/remotes",
+    )
+    for line in raw_refs.splitlines():
+        if "\x00" not in line:
+            continue
+        short_name, full_name = line.split("\x00", 1)
+        if full_name.endswith("/HEAD"):
+            continue
+        is_remote = full_name.startswith("refs/remotes/")
+        for distance, oid in enumerate(run_git(repo.root, "rev-list", full_name).splitlines()):
+            if oid in selected:
+                membership[oid][mask_text(short_name)] = (distance, is_remote)
+
+    result: dict[str, tuple[str, ...]] = {}
+    for oid, candidates in membership.items():
+        if not candidates:
+            result[oid] = ()
+            continue
+        closest_distance = min(value[0] for value in candidates.values())
+        closest = {
+            name: value for name, value in candidates.items() if value[0] == closest_distance
+        }
+        local_names = {name for name, (_distance, is_remote) in closest.items() if not is_remote}
+        names = []
+        for name, (_distance, is_remote) in closest.items():
+            remote_tail = name.split("/", 1)[1] if is_remote and "/" in name else name
+            if is_remote and remote_tail in local_names:
+                continue
+            names.append(name)
+        result[oid] = tuple(sorted(names))
+    return result
 
 
 def commit_patch(repo: Repository, oid: str) -> str:
@@ -158,8 +233,120 @@ def commit_name_status(repo: Repository, oid: str) -> str:
     ).strip()
 
 
+def commit_parent_count(repo: Repository, oid: str) -> int:
+    line = run_git(repo.root, "rev-list", "--parents", "-n", "1", oid).strip()
+    return max(0, len(line.split()) - 1)
+
+
+def commit_numstat(repo: Repository, oid: str) -> tuple[int, int, int]:
+    raw = run_git(
+        repo.root,
+        "show", "--no-color", "--no-ext-diff", "--find-renames",
+        "--format=", "--numstat", oid,
+    )
+    file_count = additions = deletions = 0
+    for line in raw.splitlines():
+        fields = line.split("\t", 2)
+        if len(fields) != 3:
+            continue
+        file_count += 1
+        if fields[0].isdigit():
+            additions += int(fields[0])
+        if fields[1].isdigit():
+            deletions += int(fields[1])
+    return file_count, additions, deletions
+
+
+CONVENTIONAL_SUBJECT_RE = re.compile(
+    r"^(?P<type>[A-Za-z][A-Za-z0-9_-]*)(?:\((?P<scope>[^)]+)\))?!?:\s+.+$"
+)
+
+
+def conventional_parts(subject: str) -> tuple[str, str]:
+    match = CONVENTIONAL_SUBJECT_RE.match(subject)
+    if not match:
+        return "", ""
+    return match.group("type"), match.group("scope") or ""
+
+
+def csv_entry(
+    repo: Repository,
+    commit: Commit,
+    branches: tuple[str, ...],
+) -> CommitCsvEntry:
+    is_merge = commit_parent_count(repo, commit.oid) > 1
+    if is_merge:
+        file_count = additions = deletions = None
+    else:
+        file_count, additions, deletions = commit_numstat(repo, commit.oid)
+    return CommitCsvEntry(
+        work_date=commit.work_date,
+        work_time=commit.work_time,
+        repository=mask_text(repo.label),
+        branches=branches,
+        oid=commit.oid,
+        subject=mask_text(commit.subject),
+        file_count=file_count,
+        additions=additions,
+        deletions=deletions,
+        is_merge=is_merge,
+    )
+
+
 def sha256_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def write_daily_commit_csv(output: Path, entries: list[CommitCsvEntry]) -> list[dict]:
+    by_date: dict[str, list[CommitCsvEntry]] = defaultdict(list)
+    repositories_by_oid: dict[str, set[str]] = defaultdict(set)
+    for entry in entries:
+        by_date[entry.work_date].append(entry)
+        repositories_by_oid[entry.oid].add(entry.repository)
+
+    results: list[dict] = []
+    header = [
+        "시각", "저장소", "브랜치", "커밋", "타입", "영역", "제목",
+        "파일수", "추가", "삭제", "머지", "동일커밋 존재 저장소",
+    ]
+    for work_date in sorted(by_date):
+        target = output / work_date / "코드" / "commits.csv"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        stream = io.StringIO(newline="")
+        writer = csv.writer(stream, lineterminator="\n")
+        writer.writerow(header)
+        date_entries = sorted(
+            by_date[work_date],
+            key=lambda item: (item.work_time, item.repository, item.oid),
+        )
+        for entry in date_entries:
+            commit_type, scope = conventional_parts(entry.subject)
+            duplicates = sorted(repositories_by_oid[entry.oid] - {entry.repository})
+            writer.writerow([
+                entry.work_time,
+                entry.repository,
+                " | ".join(entry.branches),
+                entry.oid[:10],
+                commit_type,
+                scope,
+                entry.subject,
+                "" if entry.file_count is None else entry.file_count,
+                "" if entry.additions is None else entry.additions,
+                "" if entry.deletions is None else entry.deletions,
+                "Y" if entry.is_merge else "",
+                " | ".join(duplicates),
+            ])
+        data = b"\xef\xbb\xbf" + stream.getvalue().encode("utf-8")
+        target.write_bytes(data)
+        results.append({
+            "date": work_date,
+            "path": os.fspath(target.relative_to(output)),
+            "row_count": len(date_entries),
+            "sha256": hashlib.sha256(data).hexdigest(),
+        })
+    if sum(item["row_count"] for item in results) != len(entries):
+        raise CollectionError("daily commits.csv reconciliation failed")
+    return results
 
 
 def validate_occurrences(text: str, commits: list[Commit], label: str, kind: str) -> None:
@@ -236,6 +423,7 @@ def collect(config_path: Path, output: Path, requested_from: date | None, reques
     repositories = configured_repositories(config)
     author_emails = {email.lower() for email in config["git"]["author_emails"]}
     groups: list[dict] = []
+    csv_entries: list[CommitCsvEntry] = []
     selected_total = 0
     for repo in repositories:
         by_date: dict[str, list[Commit]] = defaultdict(list)
@@ -243,20 +431,28 @@ def collect(config_path: Path, output: Path, requested_from: date | None, reques
         upper = min(item for item in (repo.source_until, requested_until) if item is not None) if (repo.source_until or requested_until) else None
         if lower and upper and lower > upper:
             continue
+        selected_commits: list[Commit] = []
         for commit in commits_for_repo(repo, timezone, author_emails):
             commit_date = date.fromisoformat(commit.work_date)
             if lower and commit_date < lower:
                 continue
             if upper and commit_date > upper:
                 continue
+            selected_commits.append(commit)
             by_date[commit.work_date].append(commit)
+        branches = branch_membership(repo, selected_commits)
         for work_date in sorted(by_date):
             commits = sorted(by_date[work_date], key=lambda item: (item.committed_at, item.oid))
             selected_total += len(commits)
             groups.append(write_group(output, repo, work_date, commits))
+            csv_entries.extend(
+                csv_entry(repo, commit, branches.get(commit.oid, ())) for commit in commits
+            )
+
+    daily_commit_csv = write_daily_commit_csv(output, csv_entries)
 
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_at": datetime.now(timezone).isoformat(),
         "timezone": config["timezone"],
         "requested_from": requested_from.isoformat() if requested_from else None,
@@ -265,6 +461,7 @@ def collect(config_path: Path, output: Path, requested_from: date | None, reques
         "author_filter_count": len(author_emails),
         "group_count": len(groups),
         "commit_count": selected_total,
+        "daily_commit_csv": daily_commit_csv,
         "groups": groups,
     }
     if sum(group["commit_count"] for group in groups) != selected_total:
