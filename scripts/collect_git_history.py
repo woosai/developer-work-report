@@ -105,23 +105,54 @@ def discover_git_roots(source_path: Path) -> list[Path]:
     return sorted(roots, key=lambda item: os.fspath(item))
 
 
+def git_common_directory(root: Path) -> Path:
+    value = run_git(root, "rev-parse", "--git-common-dir").strip()
+    path = Path(value)
+    return path.resolve() if path.is_absolute() else (root / path).resolve()
+
+
+def git_common_identity(root: Path) -> tuple[int, int]:
+    stat = git_common_directory(root).stat()
+    return stat.st_dev, stat.st_ino
+
+
 def configured_repositories(config: dict) -> list[Repository]:
-    raw: list[tuple[str, Path, date | None, date | None]] = []
+    raw: list[tuple[str, Path, Path, date | None, date | None]] = []
+    seen_common_directories: set[tuple[int, int]] = set()
     for source in config["sources"]:
         if not source.get("enabled") or "code" not in source.get("collect", []):
             continue
-        source_path = Path(source["path"]).expanduser()
+        source_path = Path(source["path"]).expanduser().resolve()
         for root in discover_git_roots(source_path):
-            raw.append((source["name"], root, parse_optional_date(source.get("from")), parse_optional_date(source.get("until"))))
+            common_identity = git_common_identity(root)
+            if common_identity in seen_common_directories:
+                continue
+            seen_common_directories.add(common_identity)
+            raw.append((
+                source["name"],
+                source_path,
+                root,
+                parse_optional_date(source.get("from")),
+                parse_optional_date(source.get("until")),
+            ))
 
     basename_counts: dict[str, int] = defaultdict(int)
-    for _source_name, root, _start, _end in raw:
+    for _source_name, _source_path, root, _start, _end in raw:
         basename_counts[root.name] += 1
 
     repositories: list[Repository] = []
-    for source_name, root, source_from, source_until in raw:
-        label = root.name if basename_counts[root.name] == 1 else f"{source_name}__{root.name}"
+    for source_name, source_path, root, source_from, source_until in raw:
+        if basename_counts[root.name] == 1:
+            label = root.name
+        else:
+            relative = root.relative_to(source_path)
+            relative_label = "__".join(relative.parts) if relative.parts else root.name
+            label = f"{source_name}__{relative_label}"
         repositories.append(Repository(source_name, root, label, source_from, source_until))
+
+    labels = [repo.label for repo in repositories]
+    if len(labels) != len(set(labels)):
+        raise ValueError("configured repository labels are not unique")
     return repositories
 
 
