@@ -1,5 +1,6 @@
 import csv
 import hashlib
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -9,10 +10,85 @@ from pathlib import Path
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-from collect_git_history import CommitCsvEntry, conventional_parts, write_daily_commit_csv
+from collect_git_history import (
+    CommitCsvEntry,
+    configured_repositories,
+    conventional_parts,
+    write_daily_commit_csv,
+)
 
 
 class DailyCommitCsvTest(unittest.TestCase):
+    def init_repository(self, path):
+        path.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", str(path)], check=True)
+        subprocess.run(["git", "-C", str(path), "config", "user.name", "Test"], check=True)
+        subprocess.run(["git", "-C", str(path), "config", "user.email", "test@example.com"], check=True)
+        (path / "README.md").write_text("test\n")
+        subprocess.run(["git", "-C", str(path), "add", "README.md"], check=True)
+        subprocess.run(["git", "-C", str(path), "commit", "-qm", "init"], check=True)
+
+    def test_nested_worktrees_with_same_basename_get_unique_labels(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "rail-worktrees"
+            for feature in ("risk-eval", "before-work"):
+                repository = source / feature / "frontend"
+                self.init_repository(repository)
+
+            config = {
+                "sources": [{
+                    "name": "rail-worktrees",
+                    "path": str(source),
+                    "enabled": True,
+                    "collect": ["code"],
+                    "from": "2025-12-18",
+                    "until": None,
+                }]
+            }
+            repositories = configured_repositories(config)
+
+            self.assertEqual(
+                [repo.label for repo in repositories],
+                [
+                    "rail-worktrees__before-work__frontend",
+                    "rail-worktrees__risk-eval__frontend",
+                ],
+            )
+
+    def test_linked_worktree_history_is_collected_once(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            main = root / "rail-project" / "frontend"
+            worktree = root / "rail-worktrees" / "feature" / "frontend"
+            self.init_repository(main)
+            worktree.parent.mkdir(parents=True)
+            subprocess.run(
+                ["git", "-C", str(main), "worktree", "add", "-qb", "feature/test", str(worktree)],
+                check=True,
+            )
+            config = {
+                "sources": [
+                    {
+                        "name": "rail-project",
+                        "path": str(main.parent),
+                        "enabled": True,
+                        "collect": ["code"],
+                    },
+                    {
+                        "name": "rail-worktrees",
+                        "path": str(root / "rail-worktrees"),
+                        "enabled": True,
+                        "collect": ["code"],
+                    },
+                ]
+            }
+
+            repositories = configured_repositories(config)
+
+            self.assertEqual(len(repositories), 1)
+            self.assertEqual(repositories[0].root, main.resolve())
+
     def test_conventional_subject_parts(self):
         self.assertEqual(conventional_parts("feat(ui): 목록을 개선한다"), ("feat", "ui"))
         self.assertEqual(conventional_parts("fix!: 호환성을 변경한다"), ("fix", ""))

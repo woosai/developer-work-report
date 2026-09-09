@@ -59,10 +59,10 @@ The recovery automation is recovery-only:
    - `code`: repository-and-date UTF-8 patches and Markdown summaries, including committed, staged, unstaged, and untracked text changes. Also include one UTF-8 BOM `코드/commits.csv` per date, consolidating every selected committed change across repositories. Do not upload complete tracked source trees. Generate committed history with `scripts/collect_git_history.py`; do not hand-roll Git loops.
    - `prompts`: human-entered prompts from demonstrably related Codex, Claude, or Antigravity sessions. For Codex, accept only user-owned threads (`thread_source == "user"`) and reject guardian, approval-review, subagent, automation, and tool-generated events. For Claude, reject subagent transcripts, task notifications, tool/command output, environment blocks, and compaction continuations. Apply the equivalent human-only rule to Antigravity.
    - `other`: eligible non-document, non-code outputs while excluding caches and build intermediates.
-4. Before uploading prompt exports, run `scripts/sanitize_prompt_exports.py --root /path/to/staging --from YYYY-MM-DD --until YYYY-MM-DD`. It removes known machine-generated sections and irreversibly masks personal data, home-directory usernames, login IDs, credentials, tokens, cookies, keys, and connection strings. Treat a nonzero exit as an upload blocker. Run a second independent inspection; withhold uncertain exports and report only counts.
+4. Before uploading prompt exports, run `scripts/sanitize_prompt_exports.py --root /path/to/staging --from YYYY-MM-DD --until YYYY-MM-DD`. It removes known machine-generated sections and irreversibly masks personal data, home-directory usernames, login IDs, credentials, tokens, cookies, keys, and connection strings. Treat a nonzero exit as an upload blocker. Run a second independent inspection. When an artifact must be excluded for sensitive or uncertain content, do not upload the original; instead upload a UTF-8 Markdown `<original-name>.excluded-summary.md` in the same date/category location. It must identify the source-relative artifact, category/repository, work date, generic exclusion reason, and a concise non-sensitive work summary. Never include secret values, raw sensitive lines, connection endpoints, or credentials in that summary. Record the excluded original and substitute SHA-256 in the daily index; a completed substitute is not an upload blocker.
 5. Build the configured date/category hierarchy. Upload missing items to each destination independently and avoid duplicates by relative path, name, and content.
 6. Continue safe work after an isolated destination failure and retry transient failures. Do not write a completion marker while any required item is missing.
-7. Never modify, move, or delete local source files or original session logs. Never upload raw session logs, assistant output, system/developer text, tool output, or internal reasoning.
+7. Never modify, move, or delete local source files or original session logs. Never upload raw session logs, assistant output, system/developer text, tool output, or internal reasoning. For excluded code, derive the substitute only from safely inspectable commit metadata and diff structure; preserve hashes/counts in the daily index, but never quote sensitive changed lines.
 
 ### Mandatory committed-code reconciliation
 
@@ -79,6 +79,8 @@ python3 scripts/collect_git_history.py \
 The generated `git-collection-manifest.json` is authoritative. The collector:
 
 - discovers nested repositories in every enabled `code` source;
+- de-duplicates committed history by Git common directory so linked worktrees do not multiply the same commits;
+- assigns distinct repository labels from source-relative paths when independent repositories share the same basename;
 - reads every reachable branch and tag with `git log --all` and de-duplicates commit hashes;
 - groups by committer date in the configured timezone;
 - accumulates the full repository/date group before writing, so a later commit cannot overwrite an earlier one;

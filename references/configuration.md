@@ -65,6 +65,6 @@ Every enabled destination is checked independently. Overall success requires all
 
 ## Privacy
 
-Keep `mask_prompts` and `exclude_secrets` enabled for ordinary use. `mask_home_user` anonymizes the user component of absolute home paths. `withhold_on_uncertainty` prevents uploads when a second privacy inspection cannot establish that the export is safe.
+Keep `mask_prompts` and `exclude_secrets` enabled for ordinary use. `mask_home_user` anonymizes the user component of absolute home paths. `withhold_on_uncertainty` prevents uploads when a second privacy inspection cannot establish that the export is safe. Every withheld artifact must be represented by a same-date/category UTF-8 Markdown exclusion summary containing only safe metadata, a generic reason, and a non-sensitive work summary; the original is never uploaded.
 
 Never store credentials, access tokens, passwords, or session contents in this configuration.
