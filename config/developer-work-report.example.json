@@ -87,6 +87,13 @@
       "enabled": false
     }
   ],
+  "operational_artifacts": {
+    "google_drive_verification": {
+      "destination": "mirror",
+      "filename_prefix": "google-drive-",
+      "range_date": "completion_date"
+    }
+  },
   "privacy": {
     "mask_prompts": true,
     "mask_home_user": true,

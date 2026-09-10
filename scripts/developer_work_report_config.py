@@ -226,6 +226,33 @@ def validate_config(data: dict, check_paths: bool) -> tuple[list[str], list[str]
     if enabled_destinations == 0:
         errors.append("at least one destination must be enabled")
 
+    operational_artifacts = data.get("operational_artifacts")
+    if operational_artifacts is not None:
+        operational_artifacts = require_object(operational_artifacts, "operational_artifacts", errors)
+        drive_verification = operational_artifacts.get("google_drive_verification")
+        if drive_verification is not None:
+            drive_verification = require_object(
+                drive_verification, "operational_artifacts.google_drive_verification", errors
+            )
+            destination = require_nonempty_string(
+                drive_verification.get("destination"),
+                "operational_artifacts.google_drive_verification.destination",
+                errors,
+            )
+            if destination and destination not in destination_names:
+                errors.append(
+                    "operational_artifacts.google_drive_verification.destination must name a configured destination"
+                )
+            require_nonempty_string(
+                drive_verification.get("filename_prefix"),
+                "operational_artifacts.google_drive_verification.filename_prefix",
+                errors,
+            )
+            if drive_verification.get("range_date") not in {"completion_date", "work_date"}:
+                errors.append(
+                    "operational_artifacts.google_drive_verification.range_date must be 'completion_date' or 'work_date'"
+                )
+
     privacy = require_object(data.get("privacy"), "privacy", errors)
     for key in ("mask_prompts", "mask_home_user", "exclude_secrets", "withhold_on_uncertainty"):
         if privacy.get(key) is not True:
@@ -249,6 +276,8 @@ def render(data: dict, config_path: Path) -> dict:
     sources = enabled(data["sources"])
     sessions = enabled(data.get("session_sources", []))
     destinations = enabled(data["destinations"])
+    operational_artifacts = data.get("operational_artifacts", {})
+    drive_verification = operational_artifacts.get("google_drive_verification")
     collection_schedule = data["automations"]["collection"]
     recovery_schedule = data["automations"]["recovery"]
 
@@ -263,6 +292,12 @@ def render(data: dict, config_path: Path) -> dict:
 
     collector_script = SKILL_ROOT / "scripts" / "collect_git_history.py"
     sanitizer_script = SKILL_ROOT / "scripts" / "sanitize_prompt_exports.py"
+    operational_artifact_rule = ""
+    if drive_verification:
+        operational_artifact_rule = f"""
+
+Google Drive verification/recovery operational artifacts: Markdown or CSV reports generated solely to record Google Drive recovery or verification, including files whose name starts with `{drive_verification['filename_prefix']}`, MUST be stored only in the matching `YYYY-MM-DD` folder below the `{drive_verification['destination']}` destination. Use the artifact's actual work date; for a multi-date range artifact, use its completion/recovery date when `range_date` is `{drive_verification['range_date']}`. Do not create or retain a project-root copy and do not upload these operational artifacts to any other destination. Use the connected Google Drive connector to upload, read back raw bytes, and verify parent metadata. These operational artifacts are outside the daily report artifact set and do not affect daily-report synchronization."""
+
     shared_rules = f"""Configuration: {config_path}
 Timezone: {timezone}
 
@@ -281,7 +316,7 @@ Collect only each source's configured categories. Organize artifacts by their ac
 
 For every Google Drive destination, use the connected Google Drive connector exclusively for listing, folder creation, upload, raw-file download, and parent-metadata verification. Never use an in-app browser, browser automation, or Computer Use to access or upload Drive files. If the connector is unavailable or rejects the destination for lack of write access, do not fall back to a browser upload: leave completion state unwritten and report the exact connector authorization/write-access blocker.
 
-Treat destinations independently: inspect before writing, avoid duplicates by relative path/name/content, repair only missing items, continue after an isolated failure, and report overall success only when every enabled destination is synchronized. Do not trust cached Drive previews/listings: verify raw uploaded bytes and use file metadata parents for folder membership. A normal no-change day still gets a date folder and daily index in every destination."""
+Treat destinations independently: inspect before writing, avoid duplicates by relative path/name/content, repair only missing items, continue after an isolated failure, and report overall success only when every enabled destination is synchronized. Do not trust cached Drive previews/listings: verify raw uploaded bytes and use file metadata parents for folder membership. A normal no-change day still gets a date folder and daily index in every destination.{operational_artifact_rule}"""
 
     holiday_rule = (
         "Before writing, verify whether today is a public or substitute holiday in the configured locale; skip and report if it is."
